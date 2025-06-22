@@ -1,9 +1,18 @@
+--!strict
 local Spotless = {}
 Spotless.__index = Spotless
 
 type SpotlessFunc = "Disconnect" | "Destroy" | "ClearChildren" | "Clear"
 
 export type Void = (...any) -> ()
+--[[Types
+	@ValidThing: The thing to be cleaned up. This can be a RBXScriptConnection, Instance, function, or table.
+	@SpotlessFunc: The method to call on the ValidThing for cleanup. This can be "Disconnect", "Destroy", "ClearChildren", or "Clear".
+	@Void: A function that takes any number of arguments and returns nothing.
+	@TaskRecord: A record of a task, containing the thing and its cleanup function.
+	@SpotlessPrivate: Private fields for the Spotless class.
+	@Spotless: Public Spotless type for type checking.
+]]
 
 export type ValidThing =
 	RBXScriptConnection |
@@ -15,7 +24,7 @@ type TaskRecord = {
 	thing: ValidThing,
 	cleanupFunc: Void,
 }
---Hello from AbsoluteObliviation
+--Hello! </>
 -- Private fields for Spotless
 export type SpotlessPrivate = {
 	_tasks: { TaskRecord },
@@ -88,7 +97,7 @@ function Spotless:Add(thing: ValidThing, method: SpotlessFunc?)
 end
 
 function Spotless:AddCleaner(otherCleaner)
-	if typeof(otherCleaner) ~= "table" or not otherCleaner.Cleanup then
+	if typeof(otherCleaner) ~= "table" or typeof(otherCleaner.Cleanup) ~= "function" then --Other cleaner may not be functon!
 		warn("[Spotless] AddCleaner called with invalid cleaner")
 		return false
 	end
@@ -138,16 +147,41 @@ function Spotless:DestroyThing(which: ValidThing)
 	return false
 end
 
+function Spotless:Remove(which: ValidThing): boolean
+	for i = #self._tasks, 1, -1 do
+		local task = self._tasks[i]
+		if task.thing == which then
+			table.remove(self._tasks, i)
+			return true
+		end
+	end
+	return false
+end
+
+function Spotless:DestroySelf()
+	self:Cleanup()
+	setmetatable(self, nil)
+	table.clear(self)
+end
+
+
 function Spotless:ReturnList()
 	return self._tasks
 end
 
+function Spotless:Struct()
+	return {
+		_tasks = self._tasks,
+		_linkedCleaners = self._linkedCleaners,
+		_cleaned = self._cleaned,
+	}
+end 
 
 
 
 
 
 
-
+--Short
 
 return Spotless
