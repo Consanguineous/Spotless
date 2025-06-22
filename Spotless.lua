@@ -16,9 +16,29 @@ type TaskRecord = {
 	cleanupFunc: Void,
 }
 --Hello from AbsoluteObliviation
-function Spotless.Construct()
-	local self = setmetatable({}, Spotless)
-	self._tasks = {} :: { TaskRecord }
+-- Private fields for Spotless
+export type SpotlessPrivate = {
+	_tasks: { TaskRecord },
+	_linkedCleaners: { any }?,
+	_cleaned: boolean?,
+}
+
+-- Public Spotless type (for type checking)
+export type Spotless = typeof(setmetatable({} :: SpotlessPrivate, Spotless)) & {
+	Add: (self: Spotless, thing: ValidThing, method: SpotlessFunc?) -> boolean,
+	AddCleaner: (self: Spotless, otherCleaner: any) -> boolean,
+	Cleanup: (self: Spotless) -> (),
+	IsCleaned: (self: Spotless) -> boolean,
+	DestroyThing: (self: Spotless, which: ValidThing) -> boolean,
+	ReturnList: (self: Spotless) -> { TaskRecord },
+}
+
+function Spotless.Construct(): Spotless
+	local self = setmetatable({
+		_tasks = {},
+		_linkedCleaners = nil,
+		_cleaned = false,
+	}, Spotless) :: any
 	return self
 end
 
@@ -67,7 +87,21 @@ function Spotless:Add(thing: ValidThing, method: SpotlessFunc?)
 	return true
 end
 
+function Spotless:AddCleaner(otherCleaner)
+	if typeof(otherCleaner) ~= "table" or not otherCleaner.Cleanup then
+		warn("[Spotless] AddCleaner called with invalid cleaner")
+		return false
+	end
+	if not self._linkedCleaners then
+		self._linkedCleaners = {}
+	end
+	table.insert(self._linkedCleaners, otherCleaner)
+	return true
+end
+
 function Spotless:Cleanup()
+	if self._cleaned then return end
+	self._cleaned = true
 	for _, task in ipairs(self._tasks) do
 		local success, err = pcall(task.cleanupFunc)
 		if not success then
@@ -75,6 +109,18 @@ function Spotless:Cleanup()
 		end
 	end
 	self._tasks = {}
+	if self._linkedCleaners then
+		for _, cleaner in ipairs(self._linkedCleaners) do
+			if cleaner and cleaner.Cleanup then
+				cleaner:Cleanup()
+			end
+		end
+		self._linkedCleaners = {}
+	end
+end
+
+function Spotless:IsCleaned()
+	return self._cleaned == true
 end
 
 function Spotless:DestroyThing(which: ValidThing)
