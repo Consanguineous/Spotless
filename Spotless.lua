@@ -23,6 +23,7 @@ export type ValidThing =
 type TaskRecord = {
 	thing: ValidThing,
 	cleanupFunc: Void,
+	_Tag_: string?,
 }
 --Hello! </>
 -- Private fields for Spotless
@@ -40,6 +41,12 @@ export type Spotless = typeof(setmetatable({} :: SpotlessPrivate, Spotless)) & {
 	IsCleaned: (self: Spotless) -> boolean,
 	DestroyThing: (self: Spotless, which: ValidThing) -> boolean,
 	ReturnList: (self: Spotless) -> { TaskRecord },
+	Remove: (self: Spotless, which: ValidThing) -> boolean,
+	DestroySelf: (self: Spotless) -> (),
+	Struct: (self: Spotless) -> SpotlessPrivate,
+	AddTagFor: (self: Spotless, thing: ValidThing, tag: string) -> boolean,
+	DestroyTagged: (self: Spotless, tag: string) -> boolean,
+	RemoveTagFor: (self: Spotless, thing: ValidThing, tag: string) -> boolean,
 }
 
 function Spotless.Construct(): Spotless
@@ -53,7 +60,7 @@ end
 
 function Spotless:Add(thing: ValidThing, method: SpotlessFunc?)
 	if not thing then
-		warn("[Spotless] Add called with nil thing")
+		warn("[Spotless] Add called with nil thing", debug.traceback("Debug traceback [Spotless]: "))
 		return false
 	end
 	
@@ -63,13 +70,13 @@ function Spotless:Add(thing: ValidThing, method: SpotlessFunc?)
 		elseif typeof(thing) == "Instance" then
 			method = "Destroy"
 		elseif typeof(thing) == "table" then
-			if typeof(thing.Destroy) == "function" then
+			if type(thing.Destroy) == "function" then
 				method = "Destroy"
-			elseif typeof(thing.Disconnect) == "function" then
-				method = "Disconnect"
-			elseif typeof(thing.ClearChildren) == "function" then
-				method = "ClearChildren"
-			elseif typeof(thing.Clear) == "function" then
+		elseif type(thing.Disconnect) == "function" then
+			method = "Disconnect"
+		elseif type(thing.ClearChildren) == "function" then
+			method = "ClearChildren"
+		elseif type(thing.Clear) == "function" then
 				method = "Clear"
 			end
 		elseif typeof(thing) == "function" then
@@ -97,7 +104,7 @@ function Spotless:Add(thing: ValidThing, method: SpotlessFunc?)
 end
 
 function Spotless:AddCleaner(otherCleaner)
-	if typeof(otherCleaner) ~= "table" or typeof(otherCleaner.Cleanup) ~= "function" then --Other cleaner may not be functon!
+	if typeof(otherCleaner) ~= "table" or type(otherCleaner.Cleanup) ~= "function" then --Other cleaner may not be functon!
 		warn("[Spotless] AddCleaner called with invalid cleaner")
 		return false
 	end
@@ -176,6 +183,53 @@ function Spotless:Struct()
 		_cleaned = self._cleaned,
 	}
 end 
+
+function Spotless:AddTagFor(thing: ValidThing, tag: string): boolean
+	for _, task in ipairs(self._tasks) do
+		if task.thing == thing then
+			if not task._Tag_ then
+				task._Tag_ = tag
+				return true
+			else
+				warn("[Spotless] Task already has tag:", task._Tag_)
+				return false
+			end
+		end
+	end
+	warn("[Spotless] Could not find task to tag")
+	return false
+end
+
+function Spotless:RemoveTagFor(thing: ValidThing, tag: string): boolean
+	for _, task in ipairs(self._tasks) do
+		if task.thing == thing and task._Tag_ == tag then
+			task._Tag_ = nil
+			return true
+		end
+	end
+	warn("[Spotless] Could not find task to remove tag from")
+	return false
+	
+end
+
+function Spotless:DestroyTagged(tag: string)
+	if not self._tasks then
+		warn("[Spotless] DestroyTagged called with no tasks")
+		return false
+	else
+		for i = #self._tasks, 1, -1 do
+			local task = self._tasks[i]
+			if task._Tag_ == tag then
+				local success, err = pcall(task.cleanupFunc)
+				if not success then
+					warn("[Spotless] Error cleaning up tagged thing:", err)
+				end
+				table.remove(self._tasks, i)
+			end
+		end
+		return true
+	end
+end
 
 
 
