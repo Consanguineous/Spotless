@@ -17,6 +17,7 @@ export type Void = (...any) -> ()
 export type ValidThing =
 	RBXScriptConnection |
 	Instance |
+	thread |
 	() -> () |
 	{ [any]: any } 
 
@@ -63,41 +64,59 @@ function Spotless:Add(thing: ValidThing, method: SpotlessFunc?)
 		warn("[Spotless] Add called with nil thing", debug.traceback("Debug traceback [Spotless]: "))
 		return false
 	end
+
 	
 	if not method then
-		if typeof(thing) == "RBXScriptConnection" then
-			method = "Disconnect"
-		elseif typeof(thing) == "Instance" then
+	if typeof(thing) == "RBXScriptConnection" then
+		method = "Disconnect"
+	elseif typeof(thing) == "Instance" then
+		method = "Destroy"
+	elseif typeof(thing) == "thread" then
+		method = nil 
+	elseif typeof(thing) == "table" then
+		if type(thing.Destroy) == "function" then
 			method = "Destroy"
-		elseif typeof(thing) == "table" then
-			if type(thing.Destroy) == "function" then
-				method = "Destroy"
 		elseif type(thing.Disconnect) == "function" then
 			method = "Disconnect"
 		elseif type(thing.ClearChildren) == "function" then
 			method = "ClearChildren"
 		elseif type(thing.Clear) == "function" then
-				method = "Clear"
-			end
-		elseif typeof(thing) == "function" then
-			method = nil
-		else
-			warn("[Spotless] Could not infer cleanup method for:", typeof(thing))
-			return false
+			method = "Clear"
 		end
-	end
-	
-	local cleanupFunc: Void
-	if typeof(thing) == "function" then
-		cleanupFunc = thing
-	elseif method and typeof(thing) == "table" and typeof(thing[method]) == "function" then
-		cleanupFunc = function()
-			thing[method](thing)
-		end
+	elseif typeof(thing) == "function" then
+		method = nil
 	else
-		warn("[Spotless] Invalid method or thing for cleanup:", method, typeof(thing))
+		warn("[Spotless] Could not infer cleanup method for:", typeof(thing)) -- This is a fallback for unknown types{Could cause errors because of typeof()}
 		return false
 	end
+end
+
+	
+	local cleanupFunc: Void
+if typeof(thing) == "function" then
+	cleanupFunc = thing
+elseif typeof(thing) == "thread" then
+	cleanupFunc = function()
+		if coroutine.status(thing) ~= "dead" then
+			local ok = pcall(function()
+				task.cancel(thing)
+			end)
+			if not ok then
+				task.defer(function()
+					pcall(task.cancel, thing)
+				end)
+			end
+		end
+	end
+elseif method and typeof(thing) == "table" and typeof(thing[method]) == "function" then
+	cleanupFunc = function()
+		thing[method](thing)
+	end
+else
+	warn("[Spotless] Invalid method or thing for cleanup:", method, typeof(thing))
+	return false
+end
+
 	
 	table.insert(self._tasks, { thing = thing, cleanupFunc = cleanupFunc })
 	return true
@@ -229,6 +248,30 @@ function Spotless:DestroyTagged(tag: string)
 		end
 		return true
 	end
+end
+
+function Spotless:AddTimer(thing: ValidThing, time: number, tag: string?, method: SpotlessFunc?): boolean
+	if not thing or not time then
+		warn("[Spotless] AddTimer called with nil thing or time")
+		return false
+	end
+
+	local added = self:Add(thing, method)
+	if not added then
+		return false
+	end
+
+	local timeoutThread = task.delay(time, function()
+		self:DestroyThing(thing)
+	end)
+
+	self:Add(timeoutThread)
+
+	if tag then
+		self:AddTagFor(timeoutThread, tag)
+	end
+	--@Tagged timer implemenation and coroutine cancelation
+	return true
 end
 
 
